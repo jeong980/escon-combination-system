@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2b3340">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="에스콘 통합관리 시스템">
+<meta name="application-name" content="에스콘 통합관리 시스템">
+<title>에스콘 통합관리 시스템</title>
+<script>
+  // 예전에 인쇄한 QR(루트 주소)을 그대로 쓰기 위한 리다이렉트.
+  // ?loc= (소화기) / ?eqsheet= (설비) / ?patrol= (순찰) 파라미터를 그대로 index_1.html 로 넘깁니다.
+  location.replace('index_1.html' + location.search + location.hash);
+</script>
+</head>
+<body style="font-family:system-ui,-apple-system,'Malgun Gothic',sans-serif;text-align:center;padding:60px 20px;color:#6b7280">
+  이동 중…<br><br>
+  자동으로 넘어가지 않으면 <a id="lnk" href="index_1.html" style="color:#2b6cb0;font-weight:700">여기를 눌러 주세요</a>.
+  <script>document.getElementById('lnk').href='index_1.html'+location.search+location.hash;</script>
+</body>
+</html>
