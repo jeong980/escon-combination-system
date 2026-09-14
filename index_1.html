@@ -676,7 +676,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-14 r57";
+const BUILD = "2026-09-14 r58";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -1449,7 +1449,7 @@ async function saveEqItems(btn){
 let FIRE_YM = ymOf(new Date());
 let FIRE_TAB = 'monitor';
 let FIRE = { locs:[], inspByLoc:{}, insp:[] };
-let FIRE_Q = [], FQ_EDIT = [];
+let FIRE_Q = [], FQ_EDIT = [], FIRE_PHOTO_HINT = '';
 let FIRE_EDIT_ID = null;
 
 function fireShiftMonth(d){ FIRE_YM=shiftYMm(FIRE_YM,d); loadFire(); }
@@ -1465,7 +1465,7 @@ async function loadFire(){
   document.getElementById('fireMonthLabel').textContent=ymLabel(FIRE_YM);
   const host=document.getElementById('fireBody'); host.innerHTML='<div class="list-empty">불러오는 중…</div>';
   try{
-    const boot=await api('bootstrap'); FIRE.locs=boot.locations||[]; FIRE_Q=boot.fire_questions||[];
+    const boot=await api('bootstrap'); FIRE.locs=boot.locations||[]; FIRE_Q=boot.fire_questions||[]; FIRE_PHOTO_HINT=boot.fire_photo_hint||'';
     FIRE.insp=(await api('inspections.list',{ym:FIRE_YM})).inspections||[];
     FIRE.inspByLoc={}; for(const r of FIRE.insp){ if(!FIRE.inspByLoc[r.location_id]) FIRE.inspByLoc[r.location_id]=r; }
     await loadFireMaps();
@@ -2195,7 +2195,11 @@ function renderFireQuestions(){
     <div class="map-help">여기서 수정한 문항이 <b>소화기 QR로 여는 현장 점검 화면</b>에 그대로 나옵니다. 각 문항은 양호/불량/해당없음으로 응답하고, <b>사진 1장은 항상 필수</b>입니다.</div>
     <div class="eqitems"><table id="fqTable"></table></div>
     <div class="adm" style="margin-top:10px"><button class="ghost-btn" onclick="addFQRow()">＋ 문항 추가</button>
-      <button class="btn-primary" style="margin-left:8px" onclick="saveFQ(this)">문항 저장</button></div></div>`;
+      <button class="btn-primary" style="margin-left:8px" onclick="saveFQ(this)">문항 저장</button></div></div>
+    <div class="panel"><div class="p-head">📷 사진 촬영 안내 문구 <span class="sub">· 현장 점검 화면의 사진 칸에 표시됩니다</span></div>
+      <textarea id="fphInput" style="width:100%;min-height:70px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit;font-size:13px" placeholder="예: 소화기 전체가 보이도록 정면에서 촬영하세요 (압력계·라벨 식별 가능하게)">${esc(FIRE_PHOTO_HINT||'')}</textarea>
+      <div class="adm" style="margin-top:8px"><button class="btn-primary" onclick="saveFireHint(this)">안내 문구 저장</button></div>
+      <div class="vonly">🔒 안내 문구 수정은 <b>관리자 로그인</b> 후 가능합니다.</div></div>`;
   renderFQ();
 }
 function renderFQ(){
@@ -2207,6 +2211,10 @@ function renderFQ(){
   document.getElementById('fqTable').innerHTML=html;
 }
 function addFQRow(){ FQ_EDIT.push({id:'q'+Date.now()+Math.floor(Math.random()*99),text:'',hint:''}); renderFQ(); }
+async function saveFireHint(btn){ const v=(document.getElementById('fphInput')||{}).value||'';
+  if(btn){btn.textContent='저장 중…';btn.disabled=true;}
+  try{ await api('fire.photoHint.save',{hint:v.trim()}); FIRE_PHOTO_HINT=v.trim(); toast('안내 문구를 저장했습니다'); }
+  catch(e){ toast('저장 실패: '+e.message); } finally{ if(btn){btn.textContent='안내 문구 저장';btn.disabled=false;} } }
 function delFQRow(i){ FQ_EDIT.splice(i,1); renderFQ(); }
 async function saveFQ(btn){ if(btn){btn.textContent='저장 중…';btn.disabled=true;}
   const qs=FQ_EDIT.filter(r=>(r.text||'').trim()).map((r,i)=>({id:r.id||('q'+Date.now()+i),text:r.text.trim(),hint:(r.hint||'').trim()}));
@@ -2221,6 +2229,13 @@ document.getElementById('gatePass').addEventListener('keydown',e=>{ if(e.key==='
 document.getElementById('btnLogout').onclick=()=>{ localStorage.removeItem('fe_pass'); sessionStorage.removeItem('fe_pass'); sessionStorage.removeItem('fe_admin'); location.reload(); };
 
 if(PASS){ tryLogin(PASS); }
+
+/* 현장 점검 완료 시 포털(콘솔) 창도 함께 종료 */
+window.addEventListener('storage', e=>{
+  if(e.key!=='fe_close_portal' || FIELD) return;
+  try{ window.close(); }catch(_){}
+  setTimeout(()=>{ document.body.innerHTML='<div style="font-family:inherit;text-align:center;padding:60px 20px;color:#6b7280"><div style="font-size:40px">✅</div><div style="font-size:17px;font-weight:800;color:#111827;margin-top:10px">점검이 완료되었습니다</div><div style="margin-top:8px;font-size:13px">이 창은 닫으셔도 됩니다.</div><button onclick="location.reload()" style="margin-top:18px;padding:10px 18px;border:1px solid #d7dbe2;border-radius:10px;background:#fff;font-family:inherit;font-weight:700;cursor:pointer">다시 열기</button></div>'; }, 300);
+});
 
 /* ---- 드래그 정렬 공통 ---- */
 function enableDnD(container, sel, onDone){
@@ -2525,7 +2540,7 @@ async function startFieldMode(){
   if(FPAT){ document.getElementById('fieldRoot').style.display='block'; showPatrolSurveyField(FPAT); return; }
   if(FLOC){
     document.getElementById('fieldRoot').style.display='block';
-    try{ const boot=await api('bootstrap'); FIRE.locs=boot.locations||[]; FIRE_Q=boot.fire_questions||[]; }catch(e){}
+    try{ const boot=await api('bootstrap'); FIRE.locs=boot.locations||[]; FIRE_Q=boot.fire_questions||[]; FIRE_PHOTO_HINT=boot.fire_photo_hint||''; }catch(e){}
     showFireSurveyField(FLOC); return;
   }
 }
@@ -2556,7 +2571,7 @@ function renderFireSurvey(){
     <div class="eqopts" style="grid-template-columns:1fr 1fr 1fr"><button class="eqopt ok ${cur==='ok'?'sel':''}" onclick="fsPick('${q.id}','ok',this)">양호</button><button class="eqopt bad ${cur==='bad'?'sel':''}" onclick="fsPick('${q.id}','bad',this)">불량</button><button class="eqopt na ${cur==='na'?'sel':''}" onclick="fsPick('${q.id}','na',this)">해당없음</button></div>
     <div id="fsd_${q.id}" style="display:${cur==='bad'?'block':'none'};margin-top:10px"><div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">불량 내용 <span style="font-weight:500">(내용 또는 사진 중 하나 필수)</span></div><textarea style="${DEF_TA}" placeholder="불량 내용을 입력하세요" oninput="FS.defects['${q.id}']=this.value">${esc(FS.defects[q.id]||'')}</textarea>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="ghost-btn" style="padding:6px 10px;font-size:12px" onclick="fsPhoto()">📷 현장 사진 촬영</button><span style="font-size:11px;color:var(--muted)">현장 사진을 첨부하면 내용은 생략 가능</span></div></div></div>`; });
-  html+=`<div class="eqcard"><h3>현장 사진 <span style="color:#dc2626">* 필수</span></h3><button class="ghost-btn" onclick="fsPhoto()">📷 사진 촬영 / 첨부</button><div id="fsPhotoBox"></div><div style="font-size:11px;color:var(--muted);margin-top:6px">관리번호·일시·점검자가 사진에 새겨집니다.</div></div>`;
+  html+=`<div class="eqcard"><h3>현장 사진 <span style="color:#dc2626">* 필수</span></h3>${FIRE_PHOTO_HINT?`<div style="background:#eef4ff;border:1px solid #c7d7f5;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;color:#1e3a8a;line-height:1.5;white-space:pre-wrap">📌 ${esc(FIRE_PHOTO_HINT)}</div>`:''}<button class="ghost-btn" onclick="fsPhoto()">📷 사진 촬영 / 첨부</button><div id="fsPhotoBox"></div><div style="font-size:11px;color:var(--muted);margin-top:6px">관리번호·일시·점검자가 사진에 새겨집니다.</div></div>`;
   html+=`<div class="eqcard"><h3>비고 / 조치사항</h3><textarea id="fsNote" style="width:100%;min-height:60px;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit"></textarea></div>`;
   html+=`<div style="margin:16px 14px 0"><button class="btn-primary" style="width:100%;padding:15px;font-size:15px" onclick="submitFireSurvey(this)">점검 제출</button></div>`;
   document.getElementById('fieldRoot').innerHTML=html;
@@ -2594,8 +2609,9 @@ function fieldDone(title, lines){
   let n=3; const t=setInterval(()=>{ n--; const el=document.getElementById('fdCount'); if(el)el.textContent=n>0?n:0; if(n<=0){ clearInterval(t); fieldClose(); } }, 1000);
 }
 function fieldClose(){
-  // 같은 탭에서 열린 경우(모바일): 콘솔로 되돌아가기
-  if(document.referrer && !window.opener){ location.href=appBase(); return; }
+  // 포털(콘솔) 창이 따로 열려 있으면 함께 닫는다
+  try{ if(window.opener && !window.opener.closed) window.opener.close(); }catch(e){}
+  try{ localStorage.setItem('fe_close_portal', String(Date.now())); }catch(e){}  // 다른 탭의 포털에 종료 신호
   try{ window.open('','_self'); }catch(e){}
   try{ window.close(); }catch(e){}
   setTimeout(()=>{ const m=document.getElementById('fdMsg'); if(m){ m.innerHTML='창을 닫거나 <a href="'+appBase()+'" style="color:#2b6cb0;font-weight:700">관리 화면으로 이동</a>하세요.'; } }, 400);
