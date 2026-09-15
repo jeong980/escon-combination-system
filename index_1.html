@@ -277,6 +277,8 @@
   .map-noimg{padding:70px 40px;color:var(--muted);font-size:14px;text-align:center}
   .mpoint{position:absolute;width:18px;height:18px;border-radius:50%;transform:translate(-50%,-50%);border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45);cursor:pointer;z-index:2}
   .mpoint.done{background:var(--green)} .mpoint.todo{background:var(--red)} .mpoint.none{background:#9aa1ac}
+  .mpoint.bad{background:#dc2626!important;box-shadow:0 0 0 4px rgba(220,38,38,.35),0 0 0 2px #fff!important;z-index:5}
+  .mpoint .mbadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font-size:11px;font-weight:900;line-height:1;pointer-events:none}
   .map-stage.ro .mpoint{cursor:default}
   .pmenu{position:fixed;z-index:95;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.2);padding:11px;width:250px}
   .pmenu .pm-title{font-size:12px;font-weight:800;margin-bottom:6px}
@@ -676,7 +678,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-14 r58";
+const BUILD = "2026-09-14 r59";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -1720,7 +1722,7 @@ function renderFireMaps(){
         <button class="danger-link" onclick="delMap('${m.id}')">삭제</button>
       </div>
     </div>
-    <div class="map-help">${isAdmin()?'지도 클릭: 점 추가 · <b>점 더블클릭: 소화기 지정/삭제</b> · 점 드래그: 이동 · ':'읽기 전용(관리자 로그인 시 편집) · '}🟢완료 🔴미점검 ⚪미지정</div>
+    <div class="map-help">${isAdmin()?'지도 클릭: 점 추가 · <b>점 더블클릭: 소화기 지정/삭제</b> · 점 드래그: 이동 · ':'읽기 전용(관리자 로그인 시 편집) · '}🟢완료 🔴미점검 ⚪미지정 <b style="color:#dc2626">!불량</b></div>
     <div class="map-stage" id="mapStage">${m.image_url?`<img src="${esc(m.image_url)}" draggable="false">`:'<div class="map-noimg">이미지 없음 — "이미지 교체"로 도면을 올려주세요</div>'}<div id="mapPoints"></div></div>`;
   if(isAdmin()) document.getElementById('mapStage').addEventListener('click', mapStageClick);
   renderMapPoints();
@@ -1753,8 +1755,10 @@ async function delMap(id){ if(!confirm('이 배치도를 삭제할까요? (소�
 function renderMapPoints(){
   const layer=document.getElementById('mapPoints'); if(!layer)return;
   layer.innerHTML=MAP_EDIT.points.map((p,i)=>{ const loc=p.location_id?FIRE.locs.find(l=>l.id===p.location_id):null;
-    const st=loc?(FIRE.inspByLoc[loc.id]?'done':'todo'):'none';
-    return `<div class="mpoint ${st}" data-i="${i}" style="left:${p.x*100}%;top:${p.y*100}%" title="${loc?esc(loc.name):'미지정 (더블클릭해 지정)'}"></div>`; }).join('');
+    const rec=loc?FIRE.inspByLoc[loc.id]:null; const isBad=rec&&rec.result==='bad';
+    const st=loc?(rec?'done':'todo'):'none';
+    const tip=loc?`${loc.name}${rec?(isBad?' · 불량'+(rec.note?': '+String(rec.note).split('\n')[0]:''):' · 점검완료'):' · 미점검'}`:'미지정 (더블클릭해 지정)';
+    return `<div class="mpoint ${st}${isBad?' bad':''}" data-i="${i}" style="left:${p.x*100}%;top:${p.y*100}%" title="${esc(tip)}">${isBad?'<span class="mbadge">!</span>':''}</div>`; }).join('');
   layer.querySelectorAll('.mpoint').forEach(el=>attachPoint(el));
 }
 function attachPoint(el){
