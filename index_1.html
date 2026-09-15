@@ -678,7 +678,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-14 r59";
+const BUILD = "2026-09-14 r60";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -1495,6 +1495,31 @@ function renderFireMonitor(){
     <div class="card"><div class="c-head"><span class="cic">⭕</span>미점검</div><div class="c-date">이번 달</div>
       <div class="metric"><span class="k">미점검</span><span class="v big ${gapN?'red':'green'}">${gapN} 대</span></div></div></div>`;
   html += '<div id="monMapWrap"></div>';
+  // ⚠️ 불량 상세
+  {
+    const badRows=FIRE.insp.filter(r=>r.result==='bad');
+    const qmap={}; (FIRE_Q||[]).forEach(q=>{ qmap[q.id]=q.text; });
+    const fmtDT=(iso)=>{ if(!iso)return ''; const d=new Date(iso); if(isNaN(d.getTime()))return String(iso);
+      try{ return d.toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}); }catch(e){ return String(iso); } };
+    html+=`<div class="panel"><div class="p-head">⚠️ 불량 상세 <span class="sub">· ${ymLabel(FIRE_YM)} · ${badRows.length}건</span></div>`;
+    if(!badRows.length){ html+=`<div class="list-empty" style="color:var(--green)"><b style="color:var(--green)">이번 달 불량 없음</b></div>`; }
+    else { html+=badRows.map(r=>{
+        const loc=FIRE.locs.find(l=>l.id===r.location_id)||{};
+        const ck=r.checklist||{}; const badQ=Object.keys(ck).filter(k=>ck[k]==='bad').map(k=>qmap[k]||k);
+        const where=[loc.zone,loc.place].filter(Boolean).join(' · ')||'위치 미지정';
+        return `<div class="dbad" style="margin-top:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div><span class="fbadge todo" style="margin-right:6px">불량</span><b style="font-size:14px">${esc(loc.name||'(삭제된 소화기)')}</b> <span style="font-size:12.5px;color:var(--muted)">· ${esc(where)}</span></div>
+            <div style="font-size:12.5px;color:var(--muted)">${esc(r.inspector||'')}${(r.inspector&&r.inspected_at)?' · ':''}${fmtDT(r.inspected_at)}</div>
+          </div>
+          ${badQ.length?`<div style="margin-top:6px;font-size:12.5px;color:var(--red);font-weight:700">${esc(badQ.join(' / '))}</div>`:''}
+          <div style="margin-top:8px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+            ${r.photo_url?`<img src="${r.photo_url}" style="height:64px;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;flex-shrink:0" onclick="fireLightbox('${r.photo_url}')">`:''}
+            <div style="font-size:13px;flex:1;min-width:160px;white-space:pre-wrap">${r.note?esc(r.note):'<span style="color:var(--faint)">불량 내용 미기재</span>'}</div>
+          </div></div>`;
+      }).join(''); }
+    html+=`</div>`;
+  }
   // 미점검
   const gaps=FIRE.locs.filter(l=>!FIRE.inspByLoc[l.id]);
   html+=`<div class="panel"><div class="p-head">⭕ 미점검 소화기 <span class="sub">· ${gapN}대</span></div>`;
@@ -1803,15 +1828,17 @@ function renderMonMap(){
   if(MON_MAP_PAGE>=FIRE_MAPS.length) MON_MAP_PAGE=0;
   const m=FIRE_MAPS[MON_MAP_PAGE]; const N=FIRE_MAPS.length;
   const pts=(m.points||[]).map(p=>{ const loc=p.location_id?FIRE.locs.find(l=>l.id===p.location_id):null;
-    const st=loc?(FIRE.inspByLoc[loc.id]?'done':'todo'):'none';
-    return `<div class="mpoint ${st}" style="left:${p.x*100}%;top:${p.y*100}%" title="${loc?esc(loc.name):''}"></div>`; }).join('');
+    const rec=loc?FIRE.inspByLoc[loc.id]:null; const isBad=rec&&rec.result==='bad';
+    const st=loc?(rec?'done':'todo'):'none';
+    const tip=loc?`${loc.name}${rec?(isBad?' · 불량'+(rec.note?': '+String(rec.note).split('\n')[0]:''):' · 점검완료'):' · 미점검'}`:'';
+    return `<div class="mpoint ${st}${isBad?' bad':''}" style="left:${p.x*100}%;top:${p.y*100}%" title="${esc(tip)}">${isBad?'<span class="mbadge">!</span>':''}</div>`; }).join('');
   wrap.innerHTML=`<div class="zone-block">
     <div class="zone-head" style="justify-content:space-between">
       <span>🗺️ ${esc(m.name)} 배치도 <span class="zc">(${MON_MAP_PAGE+1}/${N})</span></span>
       <span>${N>1?`<button class="ghost-btn" onclick="monMapPage(-1)">◀</button> <button class="ghost-btn" onclick="monMapPage(1)">▶</button>`:''}</span>
     </div>
     <div class="map-stage ro">${m.image_url?`<img src="${esc(m.image_url)}" draggable="false">`:'<div class="map-noimg">이미지 없음</div>'}<div>${pts}</div></div>
-    <div style="font-size:12px;color:var(--muted);margin-top:8px">🟢 점검완료 · 🔴 미점검 · ⚪ 소화기 미지정</div></div>`;
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">🟢 점검완료 · 🔴 미점검 · ⚪ 소화기 미지정 · <b style="color:#dc2626">!</b> 불량 <span style="color:var(--faint)">(점 위에 올리면 내용 표시)</span></div></div>`;
 }
 function monMapPage(d){ MON_MAP_PAGE=(MON_MAP_PAGE+d+FIRE_MAPS.length)%FIRE_MAPS.length; renderMonMap(); }
 function changeConsolePass(){ const np=prompt('새 관리자 비밀번호(4자 이상):'); if(np==null)return; if(np.trim().length<4){toast('4자 이상 입력하세요');return;}
