@@ -602,6 +602,10 @@
       <label style="font-size:12px;font-weight:700;flex:1;min-width:110px">회사명<input id="eiCompany" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;margin-top:4px"></label>
       <button class="btn-primary" onclick="saveEqInfo(this)">설비정보 저장</button>
     </div>
+    <div class="panel"><div class="p-head">👷 점검자 지정 <span class="sub">· 이 점검표의 현장 설문에 표시될 점검자</span></div>
+      <div id="eiInspList"><div class="list-empty">불러오는 중…</div></div>
+      <div class="adm" style="margin-top:10px"><button class="btn-primary" onclick="saveSheetInspectors(this)">점검자 지정 저장</button></div>
+      <div class="vonly">🔒 점검자 지정은 <b>관리자 로그인</b> 후 가능합니다.</div></div>
     <table id="eqItemsTable"></table>
     <div style="font-size:12.5px;color:var(--muted);margin-top:12px">방법: 육안=√/⊗ 체크, 수치기입·기록=값 입력 · 근무 "주·야"로 두면 월간표에 주/야 두 줄이 생깁니다.</div>
   </div>
@@ -678,7 +682,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-14 r60";
+const BUILD = "2026-09-21 r61";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -1395,6 +1399,7 @@ async function openEqItems(sheetId, name){
   document.getElementById('eiName').value=s.name||name||''; document.getElementById('eiPlace').value=s.place||''; document.getElementById('eiProc').value=s.process||''; document.getElementById('eiCompany').value=s.company||'주식회사 에스콘';
   document.getElementById('eqItemsView').classList.add('on');
   document.getElementById('eqItemsTable').innerHTML='<tr><td>불러오는 중…</td></tr>';
+  loadSheetInspectors(sheetId);
   try{ const j=await api('eq.items.list',{sheet_id:sheetId}); EQ_ITEMS_EDIT.rows=(j.items||[]).map(x=>({...x})); renderEqItems(); }
   catch(e){ document.getElementById('eqItemsTable').innerHTML='<tr><td>불러오기 실패: '+esc(e.message)+'</td></tr>'; }
 }
@@ -1407,6 +1412,33 @@ async function copyEqSheetFromEditor(btn){ if(!confirm('이 점검표를 항목�
   try{ await api('eq.sheets.copy',{id:EQ_ITEMS_EDIT.sheetId}); toast('복사했습니다'); closeEqItems(); }
   catch(e){ toast('복사 실패: '+e.message); } finally{ btn.disabled=false; } }
 function closeEqItems(){ document.getElementById('eqItemsView').classList.remove('on'); loadEqSheets(); }
+let EI_INSP={ all:[], sel:new Set() };
+async function loadSheetInspectors(sheetId){
+  const host=document.getElementById('eiInspList'); if(host)host.innerHTML='<div class="list-empty">불러오는 중…</div>';
+  try{
+    const all=((await api('inspectors.list',{module:'equip'})).inspectors)||[];
+    const s=(EQ_SHEETS||[]).find(x=>x.id===sheetId)||{};
+    EI_INSP={ all, sel:new Set((s.inspector_ids)||[]) };
+    renderSheetInspectors();
+  }catch(e){ if(host)host.innerHTML='<div class="list-empty">불러오기 실패: '+esc(e.message)+'</div>'; }
+}
+function renderSheetInspectors(){
+  const host=document.getElementById('eiInspList'); if(!host)return;
+  if(!EI_INSP.all.length){ host.innerHTML='<div class="list-empty">설비 점검자 명단이 비어 있습니다. <b>점검자 명단</b> 탭에서 먼저 등록하세요.</div>'; return; }
+  const cnt=EI_INSP.sel.size;
+  host.innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap">${EI_INSP.all.map(x=>`<button class="wmchk ${EI_INSP.sel.has(x.id)?'sel':''}" onclick="toggleSheetInspector('${x.id}')" ${isAdmin()?'':'disabled style="cursor:default"'}>${esc(x.name)}${x.dept?`<span style="font-weight:500;color:var(--muted)"> · ${esc(x.dept)}</span>`:''}</button>`).join('')}</div>
+    <div style="margin-top:8px;font-size:12px;color:var(--muted)">${cnt?`선택 ${cnt}명 — 현장 설문에 이 인원만 표시됩니다.`:'선택 없음 — 현장 설문에 <b>전체 명단</b>이 표시됩니다.'}</div>`;
+}
+function toggleSheetInspector(id){ if(!isAdmin())return; if(EI_INSP.sel.has(id))EI_INSP.sel.delete(id); else EI_INSP.sel.add(id); renderSheetInspectors(); }
+async function saveSheetInspectors(btn){
+  const id=EQ_ITEMS_EDIT.sheetId; if(!id)return;
+  if(btn){btn.textContent='저장 중…';btn.disabled=true;}
+  try{ const ids=[...EI_INSP.sel]; await api('eq.sheets.setInspectors',{id, inspector_ids:ids});
+    const s=(EQ_SHEETS||[]).find(x=>x.id===id); if(s)s.inspector_ids=ids;
+    toast(ids.length?`점검자 ${ids.length}명 지정`:'지정 해제 (전체 명단 사용)'); }
+  catch(e){ toast('저장 실패: '+e.message); }
+  finally{ if(btn){btn.textContent='점검자 지정 저장';btn.disabled=false;} }
+}
 function renderEqItems(){
   const rows=EQ_ITEMS_EDIT.rows;
   const methodOpts=(v)=>['육안','수치기입','기록','선택형'].map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('');
@@ -2652,7 +2684,8 @@ async function showEqSurveyField(){
   const ym=ymOf(new Date());
   try{
     const j=await api('eq.month.get',{sheet_id:FEQ, ym});
-    let insp=[]; try{ insp=(await api('inspectors.list',{module:'equip'})).inspectors||[]; }catch(e){}
+    let insp=[]; if(Array.isArray(j.sheet_inspectors)&&j.sheet_inspectors.length){ insp=j.sheet_inspectors; }
+    else { try{ insp=(await api('inspectors.list',{module:'equip'})).inspectors||[]; }catch(e){} }
     ES={ sheet:j.sheet||{}, items:j.items||[], meta:(j.month&&j.month.meta)||{}, shift:null, inspector:localStorage.getItem('fe_inspector')||'', answers:{}, photos:{}, defects:{}, inspectors:insp, ym };
     renderEqSurvey();
   }catch(e){ app.innerHTML=`<div style="padding:50px;text-align:center;color:#c0392b">불러오기 실패: ${esc(e.message)}</div>`; }
