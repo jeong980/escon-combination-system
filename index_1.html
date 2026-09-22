@@ -602,6 +602,16 @@
       <label style="font-size:12px;font-weight:700;flex:1;min-width:110px">회사명<input id="eiCompany" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;margin-top:4px"></label>
       <button class="btn-primary" onclick="saveEqInfo(this)">설비정보 저장</button>
     </div>
+    <div class="panel"><div class="p-head">📍 배치도 위치 <span class="sub">· 웹점검 화면에 이 설비 위치가 표시됩니다</span></div>
+      <div class="adm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <select id="eiMapSel" onchange="eiMapChange(this.value)" style="font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:200px"></select>
+        <button class="ghost-btn" onclick="eiMapUpload()">＋ 새 배치도 올리기</button>
+        <button class="btn-primary" onclick="eiMapSave(this)">위치 저장</button>
+        <button class="danger-link" onclick="eiMapClear(this)">위치 해제</button>
+      </div>
+      <div id="eiMapStage"><div class="list-empty">불러오는 중…</div></div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">배치도를 고른 뒤 <b>도면을 클릭</b>해 설비 위치를 찍고 <b>위치 저장</b>. 🔴 이 설비 · ⚪ 같은 도면의 다른 설비 · 배치도 이미지는 소화기 배치도와 공유됩니다.</div>
+      <div class="vonly">🔒 배치도 위치 지정은 <b>관리자 로그인</b> 후 가능합니다.</div></div>
     <div class="panel"><div class="p-head">👷 점검자 지정 <span class="sub">· 이 점검표의 현장 설문에 표시될 점검자</span></div>
       <div id="eiInspList"><div class="list-empty">불러오는 중…</div></div>
       <div class="adm" style="margin-top:10px"><button class="btn-primary" onclick="saveSheetInspectors(this)">점검자 지정 저장</button></div>
@@ -682,7 +692,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-21 r61";
+const BUILD = "2026-09-22 r62";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -1399,7 +1409,7 @@ async function openEqItems(sheetId, name){
   document.getElementById('eiName').value=s.name||name||''; document.getElementById('eiPlace').value=s.place||''; document.getElementById('eiProc').value=s.process||''; document.getElementById('eiCompany').value=s.company||'주식회사 에스콘';
   document.getElementById('eqItemsView').classList.add('on');
   document.getElementById('eqItemsTable').innerHTML='<tr><td>불러오는 중…</td></tr>';
-  loadSheetInspectors(sheetId);
+  loadSheetInspectors(sheetId); loadSheetMap(sheetId);
   try{ const j=await api('eq.items.list',{sheet_id:sheetId}); EQ_ITEMS_EDIT.rows=(j.items||[]).map(x=>({...x})); renderEqItems(); }
   catch(e){ document.getElementById('eqItemsTable').innerHTML='<tr><td>불러오기 실패: '+esc(e.message)+'</td></tr>'; }
 }
@@ -1412,6 +1422,54 @@ async function copyEqSheetFromEditor(btn){ if(!confirm('이 점검표를 항목�
   try{ await api('eq.sheets.copy',{id:EQ_ITEMS_EDIT.sheetId}); toast('복사했습니다'); closeEqItems(); }
   catch(e){ toast('복사 실패: '+e.message); } finally{ btn.disabled=false; } }
 function closeEqItems(){ document.getElementById('eqItemsView').classList.remove('on'); loadEqSheets(); }
+let EI_MAP={ maps:[], mapId:null, x:null, y:null };
+async function loadSheetMap(sheetId){
+  const stage=document.getElementById('eiMapStage'); if(stage)stage.innerHTML='<div class="list-empty">불러오는 중…</div>';
+  try{
+    const maps=((await api('maps.list')).maps)||[];
+    const s=(EQ_SHEETS||[]).find(x=>x.id===sheetId)||{};
+    EI_MAP={ maps, mapId:s.map_id||null, x:s.map_x??null, y:s.map_y??null };
+    renderSheetMap();
+  }catch(e){ if(stage)stage.innerHTML='<div class="list-empty">불러오기 실패: '+esc(e.message)+'</div>'; }
+}
+function renderSheetMap(){
+  const sel=document.getElementById('eiMapSel');
+  if(sel) sel.innerHTML=`<option value="">— 배치도 선택 —</option>`+EI_MAP.maps.map(m=>`<option value="${m.id}" ${m.id===EI_MAP.mapId?'selected':''}>${esc(m.name)}</option>`).join('');
+  const stage=document.getElementById('eiMapStage'); if(!stage)return;
+  if(!EI_MAP.maps.length){ stage.innerHTML='<div class="list-empty">등록된 배치도가 없습니다. <b>＋ 새 배치도 올리기</b>로 도면 이미지를 추가하세요.</div>'; return; }
+  const m=EI_MAP.maps.find(x=>x.id===EI_MAP.mapId);
+  if(!m){ stage.innerHTML='<div class="list-empty">배치도를 선택하면 도면이 표시됩니다. (현재 위치 미지정)</div>'; return; }
+  const others=(EQ_SHEETS||[]).filter(o=>o.id!==EQ_ITEMS_EDIT.sheetId && o.map_id===m.id && o.map_x!=null);
+  stage.innerHTML=`<div id="eiMapBox" style="position:relative;width:100%;max-width:900px;line-height:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;${isAdmin()?'cursor:crosshair':''}">
+    <img src="${m.image_url}" style="width:100%;display:block" draggable="false">
+    ${others.map(o=>`<span title="${esc(o.name)}" style="position:absolute;left:${o.map_x*100}%;top:${o.map_y*100}%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:#9aa1ac;border:2px solid #fff"></span>`).join('')}
+    ${EI_MAP.x!=null?`<span style="position:absolute;left:${EI_MAP.x*100}%;top:${EI_MAP.y*100}%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:#dc2626;border:3px solid #fff;box-shadow:0 0 0 4px rgba(220,38,38,.35)"></span>`:''}
+  </div>`;
+  if(isAdmin()){ const box=document.getElementById('eiMapBox'); box.addEventListener('click',e=>{ const r=box.getBoundingClientRect(); EI_MAP.x=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)); EI_MAP.y=Math.min(1,Math.max(0,(e.clientY-r.top)/r.height)); renderSheetMap(); toast('위치 지정됨 · 위치 저장을 눌러 반영'); }); }
+}
+function eiMapChange(v){ EI_MAP.mapId=v||null; EI_MAP.x=null; EI_MAP.y=null; renderSheetMap(); }
+function eiMapUpload(){
+  pickImageFile(async f=>{ const name=prompt('배치도 이름(예: 사출동 1층):',(f.name||'').replace(/\.[^.]+$/,'')); if(name==null||!name.trim())return;
+    toast('업로드 중…');
+    try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64}); EI_MAP.maps.push(r.map); EI_MAP.mapId=r.map.id; EI_MAP.x=null; EI_MAP.y=null; renderSheetMap(); toast('배치도를 추가했습니다 · 도면을 클릭해 위치를 찍으세요'); }
+    catch(e){ toast('업로드 실패: '+e.message); } });
+}
+async function eiMapSave(btn){
+  if(!EI_MAP.mapId){ toast('배치도를 선택하세요'); return; }
+  if(EI_MAP.x==null){ toast('도면을 클릭해 위치를 지정하세요'); return; }
+  if(btn){btn.textContent='저장 중…';btn.disabled=true;}
+  try{ await api('eq.sheets.setMap',{id:EQ_ITEMS_EDIT.sheetId, map_id:EI_MAP.mapId, x:EI_MAP.x, y:EI_MAP.y});
+    const s=(EQ_SHEETS||[]).find(x=>x.id===EQ_ITEMS_EDIT.sheetId); if(s){ s.map_id=EI_MAP.mapId; s.map_x=EI_MAP.x; s.map_y=EI_MAP.y; }
+    toast('배치도 위치를 저장했습니다'); }
+  catch(e){ toast('저장 실패: '+e.message); } finally{ if(btn){btn.textContent='위치 저장';btn.disabled=false;} }
+}
+async function eiMapClear(btn){
+  if(!confirm('이 점검표의 배치도 위치를 해제할까요?'))return;
+  try{ await api('eq.sheets.setMap',{id:EQ_ITEMS_EDIT.sheetId, map_id:null});
+    const s=(EQ_SHEETS||[]).find(x=>x.id===EQ_ITEMS_EDIT.sheetId); if(s){ s.map_id=null; s.map_x=null; s.map_y=null; }
+    EI_MAP.mapId=null; EI_MAP.x=null; EI_MAP.y=null; renderSheetMap(); toast('위치를 해제했습니다'); }
+  catch(e){ toast('해제 실패: '+e.message); }
+}
 let EI_INSP={ all:[], sel:new Set() };
 async function loadSheetInspectors(sheetId){
   const host=document.getElementById('eiInspList'); if(host)host.innerHTML='<div class="list-empty">불러오는 중…</div>';
@@ -2686,13 +2744,21 @@ async function showEqSurveyField(){
     const j=await api('eq.month.get',{sheet_id:FEQ, ym});
     let insp=[]; if(Array.isArray(j.sheet_inspectors)&&j.sheet_inspectors.length){ insp=j.sheet_inspectors; }
     else { try{ insp=(await api('inspectors.list',{module:'equip'})).inspectors||[]; }catch(e){} }
-    ES={ sheet:j.sheet||{}, items:j.items||[], meta:(j.month&&j.month.meta)||{}, shift:null, inspector:localStorage.getItem('fe_inspector')||'', answers:{}, photos:{}, defects:{}, inspectors:insp, ym };
+    ES={ sheet:j.sheet||{}, items:j.items||[], meta:(j.month&&j.month.meta)||{}, shift:null, inspector:localStorage.getItem('fe_inspector')||'', answers:{}, photos:{}, defects:{}, inspectors:insp, ym, map:j.map||null };
     renderEqSurvey();
   }catch(e){ app.innerHTML=`<div style="padding:50px;text-align:center;color:#c0392b">불러오기 실패: ${esc(e.message)}</div>`; }
 }
 function renderEqSurvey(){
   const s=ES.sheet, rev=ES.meta.revisions||[], savedInsp=ES.inspector;
   let html=`<div class="eqhdr"><div class="lbl">설비 일상점검</div><h1>${esc(s.name||'')}</h1>${(s.place||s.process)?`<div class="subx">${esc([s.place,s.process].filter(Boolean).join(' · '))}</div>`:''}</div>`;
+  if(ES.map&&ES.map.image_url&&ES.map.x!=null){ const m=ES.map;
+    html+=`<div class="eqcard"><h3>배치도 <span style="font-weight:500;color:var(--muted);font-size:12px">· ${esc(m.name||'')}</span></h3>
+      <div style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:zoom-in" onclick="eqLightbox('${m.image_url}')">
+        <img src="${m.image_url}" style="width:100%;display:block">
+        ${(m.others||[]).map(o=>`<span style="position:absolute;left:${o.map_x*100}%;top:${o.map_y*100}%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:#9aa1ac;border:2px solid #fff;opacity:.85"></span>`).join('')}
+        <span style="position:absolute;left:${m.x*100}%;top:${m.y*100}%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:var(--red);border:3px solid #fff;box-shadow:0 0 0 4px rgba(220,38,38,.35);animation:fspulse 1.4s ease-out infinite"></span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">🔴 이 설비 위치 · 회색 점은 다른 설비 · 탭하면 크게 보기</div></div>`; }
   if(rev.length){ html+=`<div class="eqcard"><h3>개정 이력</h3><table class="rev-tbl"><tr><th>개정일자</th><th>개정사유</th><th>개정내용</th><th>작성자</th><th>비고</th></tr>${rev.map(r=>`<tr><td>${esc(r.date||'')}</td><td>${esc(r.reason||'')}</td><td>${esc(r.content||'')}</td><td>${esc(r.author||'')}</td><td>${esc(r.note||'')}</td></tr>`).join('')}</table></div>`; }
   html+=`<div class="eqcard"><h3>점검 구분 <span style="color:#dc2626">*</span></h3><div class="eqgrid2">
     <div class="eqchip" id="es-shift-주" onclick="esShift('주')">☀ 주간</div>
