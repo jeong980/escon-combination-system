@@ -698,7 +698,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-23 r65";
+const BUILD = "2026-09-23 r66";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -998,6 +998,8 @@ function renderEqMap(){
       <div class="head-tools adm">
         <button class="btn-primary" style="padding:8px 14px" onclick="emSave(this)">저장${dirty?` (${dirty})`:''}</button>
         <button class="ghost-btn" onclick="emUpload()">＋ 배치도</button>
+        <button class="ghost-btn" onclick="emRename()">이름변경</button>
+        <button class="danger-link" onclick="emDelete()">배치도 삭제</button>
       </div>
     </div>
     <div id="emStage" style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;${EM.pick?'cursor:crosshair':''}">
@@ -1045,6 +1047,16 @@ function emUpload(){
     try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64, module:'equip'}); EM.maps.push(r.map); EM.idx=EM.maps.length-1; renderEqMap(); toast('배치도를 추가했습니다'); }
     catch(e){ toast('업로드 실패: '+e.message); } });
 }
+async function emRename(){ const m=EM.maps[EM.idx]; if(!m)return; const nm=prompt('배치도 이름:', m.name); if(nm==null||!nm.trim())return;
+  try{ await api('maps.update',{id:m.id, name:nm.trim()}); m.name=nm.trim(); renderEqMap(); toast('이름을 변경했습니다'); }catch(e){ toast('변경 실패: '+e.message); } }
+async function emDelete(){ const m=EM.maps[EM.idx]; if(!m)return;
+  const on=EM.sheets.filter(s=>s.map_id===m.id && s.map_x!=null).length;
+  if(!confirm(`'${m.name}' 배치도를 삭제할까요?${on?`\n배치된 설비 ${on}대의 위치도 함께 해제됩니다.`:''}\n(설비 점검 데이터는 그대로 유지됩니다)`))return;
+  try{ await api('maps.delete',{id:m.id});
+    EM.sheets.forEach(s=>{ if(s.map_id===m.id){ s.map_id=null; s.map_x=null; s.map_y=null; } });
+    EM.maps.splice(EM.idx,1); if(EM.idx>=EM.maps.length)EM.idx=Math.max(0,EM.maps.length-1); EM.dirty=new Set(); EM.pick=null;
+    renderEqMap(); toast('배치도를 삭제했습니다'); }
+  catch(e){ toast('삭제 실패: '+e.message); } }
 async function emSave(btn){
   if(!EM.dirty.size){ toast('변경 사항이 없습니다'); return; }
   if(btn){btn.textContent='저장 중…';btn.disabled=true;}
@@ -2808,8 +2820,10 @@ async function showFireSurveyField(locId){
   const loc=(FIRE.locs||[]).find(x=>x.id===locId);
   if(!loc){ fr.innerHTML='<div style="padding:50px;text-align:center;color:#6b7280">해당 소화기를 찾을 수 없습니다.</div>'; return; }
   let insp=[]; try{ insp=(await api('inspectors.list',{module:'fire'})).inspectors||[]; }catch(e){}
-  let map=null, mpt=null; try{ const maps=(await api('maps.list',{module:'fire'})).maps||[]; for(const m of maps){ const p=(m.points||[]).find(pt=>pt.location_id===loc.id); if(p){ map=m; mpt=p; break; } } }catch(e){}
-  FS={ loc, checklist:{}, photo:null, inspectors:insp, inspector:localStorage.getItem('fe_inspector')||'', map, mpt, defects:{} };
+  let map=null, mpt=null, doneSet=new Set();
+  try{ const maps=(await api('maps.list',{module:'fire'})).maps||[]; for(const m of maps){ const p=(m.points||[]).find(pt=>pt.location_id===loc.id); if(p){ map=m; mpt=p; break; } } }catch(e){}
+  if(map){ try{ const ins=(await api('inspections.list',{ym:FIRE_YM})).inspections||[]; ins.forEach(r=>doneSet.add(r.location_id)); }catch(e){} }
+  FS={ loc, checklist:{}, photo:null, inspectors:insp, inspector:localStorage.getItem('fe_inspector')||'', map, mpt, defects:{}, done:doneSet };
   renderFireSurvey();
 }
 function renderFireSurvey(){
@@ -2819,10 +2833,10 @@ function renderFireSurvey(){
     html+=`<div class="eqcard"><h3>배치도 <span style="font-weight:500;color:var(--muted);font-size:12px">· ${esc(m.name||'')}</span></h3>
       <div style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:zoom-in" onclick="eqLightbox('${m.image_url}')">
         <img src="${m.image_url}" style="width:100%;display:block">
-        ${(m.points||[]).filter(q=>q.location_id&&q.location_id!==loc.id).map(q=>`<span style="position:absolute;left:${q.x*100}%;top:${q.y*100}%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:#9aa1ac;border:2px solid #fff;opacity:.85"></span>`).join('')}
+        ${(m.points||[]).filter(q=>q.location_id&&q.location_id!==loc.id).map(q=>{ const dn=FS.done&&FS.done.has(q.location_id); return `<span style="position:absolute;left:${q.x*100}%;top:${q.y*100}%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:${dn?'var(--green)':'#9aa1ac'};border:2px solid #fff;opacity:.9"></span>`; }).join('')}
         <span style="position:absolute;left:${p.x*100}%;top:${p.y*100}%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:var(--red);border:3px solid #fff;box-shadow:0 0 0 4px rgba(220,38,38,.35);animation:fspulse 1.4s ease-out infinite"></span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">🔴 이 소화기 위치 · 회색 점은 다른 소화기 · 탭하면 크게 보기</div></div>`; }
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">🔴 이 소화기 위치 · 🟢 이번 달 점검완료 · ⚪ 미점검 · 탭하면 크게 보기</div></div>`; }
   html+=`<div class="eqcard"><h3>점검자 선택 <span style="color:#dc2626">*</span></h3>${FS.inspectors.length?`<div class="eqgrid2">${FS.inspectors.map(x=>`<div class="eqchip ${x.name===saved?'sel':''}" onclick="fsInsp('${esc(x.name).replace(/'/g,"\\'")}',this)">${esc(x.name)}${x.dept?`<small>${esc(x.dept)}</small>`:''}</div>`).join('')}</div>`:'<div style="color:var(--muted);font-size:13px">등록된 점검자가 없습니다. 관리자에게 소화기 점검자 명단 등록을 요청하세요.</div>'}</div>`;
   qs.forEach((q,i)=>{ const cur=FS.checklist[q.id]; html+=`<div class="eqq"><div class="qh"><span class="no">${i+1}</span>${esc(q.text)} <span style="color:#dc2626">*</span></div>${q.hint?`<div class="qsub">${esc(q.hint)}</div>`:''}
     <div class="eqopts" style="grid-template-columns:1fr 1fr 1fr"><button class="eqopt ok ${cur==='ok'?'sel':''}" onclick="fsPick('${q.id}','ok',this)">양호</button><button class="eqopt bad ${cur==='bad'?'sel':''}" onclick="fsPick('${q.id}','bad',this)">불량</button><button class="eqopt na ${cur==='na'?'sel':''}" onclick="fsPick('${q.id}','na',this)">해당없음</button></div>
