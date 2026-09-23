@@ -614,7 +614,7 @@
         <button class="danger-link" onclick="eiMapClear(this)">위치 해제</button>
       </div>
       <div id="eiMapStage"><div class="list-empty">불러오는 중…</div></div>
-      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">배치도를 고른 뒤 <b>도면을 클릭</b>해 설비 위치를 찍고 <b>위치 저장</b>. 🔴 이 설비 · ⚪ 같은 도면의 다른 설비 · 배치도 이미지는 소화기 배치도와 공유됩니다.</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:6px">배치도를 고른 뒤 <b>도면을 클릭</b>해 설비 위치를 찍고 <b>위치 저장</b>. 🔴 이 설비 · ⚪ 같은 도면의 다른 설비 · 설비 전용 배치도입니다(소화기와 별도 관리).</div>
       <div class="vonly">🔒 배치도 위치 지정은 <b>관리자 로그인</b> 후 가능합니다.</div></div>
     <div class="panel"><div class="p-head">👷 점검자 지정 <span class="sub">· 이 점검표의 현장 설문에 표시될 점검자</span></div>
       <div id="eiInspList"><div class="list-empty">불러오는 중…</div></div>
@@ -696,7 +696,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-23 r63";
+const BUILD = "2026-09-23 r64";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -950,7 +950,7 @@ let EM={ maps:[], idx:0, sheets:[], dirty:new Set(), pick:null };
 async function loadEqMap(){
   const el=document.getElementById('eqSheetList'); el.innerHTML='<div class="list-empty">불러오는 중…</div>';
   try{
-    const [mj,sj]=await Promise.all([api('maps.list'), api('eq.sheets.list',{ym:EQ_YM})]);
+    const [mj,sj]=await Promise.all([api('maps.list',{module:'equip'}), api('eq.sheets.list',{ym:EQ_YM})]);
     EM.maps=mj.maps||[]; EM.sheets=(sj.sheets||[]); EM.dirty=new Set(); EM.pick=null;
     if(EM.idx>=EM.maps.length)EM.idx=0;
     renderEqMap();
@@ -1015,7 +1015,7 @@ function emBind(){
 function emUpload(){
   pickImageFile(async f=>{ const name=prompt('배치도 이름(예: 사출동 1층):',(f.name||'').replace(/\.[^.]+$/,'')); if(name==null||!name.trim())return;
     toast('업로드 중…');
-    try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64}); EM.maps.push(r.map); EM.idx=EM.maps.length-1; renderEqMap(); toast('배치도를 추가했습니다'); }
+    try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64, module:'equip'}); EM.maps.push(r.map); EM.idx=EM.maps.length-1; renderEqMap(); toast('배치도를 추가했습니다'); }
     catch(e){ toast('업로드 실패: '+e.message); } });
 }
 async function emSave(btn){
@@ -1513,7 +1513,7 @@ let EI_MAP={ maps:[], mapId:null, x:null, y:null };
 async function loadSheetMap(sheetId){
   const stage=document.getElementById('eiMapStage'); if(stage)stage.innerHTML='<div class="list-empty">불러오는 중…</div>';
   try{
-    const maps=((await api('maps.list')).maps)||[];
+    const maps=((await api('maps.list',{module:'equip'})).maps)||[];
     const s=(EQ_SHEETS||[]).find(x=>x.id===sheetId)||{};
     EI_MAP={ maps, mapId:s.map_id||null, x:s.map_x??null, y:s.map_y??null };
     renderSheetMap();
@@ -1538,7 +1538,7 @@ function eiMapChange(v){ EI_MAP.mapId=v||null; EI_MAP.x=null; EI_MAP.y=null; ren
 function eiMapUpload(){
   pickImageFile(async f=>{ const name=prompt('배치도 이름(예: 사출동 1층):',(f.name||'').replace(/\.[^.]+$/,'')); if(name==null||!name.trim())return;
     toast('업로드 중…');
-    try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64}); EI_MAP.maps.push(r.map); EI_MAP.mapId=r.map.id; EI_MAP.x=null; EI_MAP.y=null; renderSheetMap(); toast('배치도를 추가했습니다 · 도면을 클릭해 위치를 찍으세요'); }
+    try{ const b64=await downscaleImage(f,1600); const r=await api('maps.add',{name:name.trim(), image_base64:b64, module:'equip'}); EI_MAP.maps.push(r.map); EI_MAP.mapId=r.map.id; EI_MAP.x=null; EI_MAP.y=null; renderSheetMap(); toast('배치도를 추가했습니다 · 도면을 클릭해 위치를 찍으세요'); }
     catch(e){ toast('업로드 실패: '+e.message); } });
 }
 async function eiMapSave(btn){
@@ -1901,7 +1901,7 @@ async function exportFireExcel(sel){
 let FIRE_MAPS = [];
 let MAP_PAGE = 0, MON_MAP_PAGE = 0;
 let MAP_EDIT = { id:null, points:[], dirty:false, _suppress:false };
-async function loadFireMaps(){ try{ FIRE_MAPS=(await api('maps.list')).maps||[]; }catch(e){ FIRE_MAPS=[]; } }
+async function loadFireMaps(){ try{ FIRE_MAPS=(await api('maps.list',{module:'fire'})).maps||[]; }catch(e){ FIRE_MAPS=[]; } }
 function downscaleImage(file, max){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>{ const img=new Image(); img.onload=()=>{ let w=img.width,h=img.height; const sc=Math.min(1,max/Math.max(w,h)); w=Math.round(w*sc); h=Math.round(h*sc); const c=document.createElement('canvas'); c.width=w;c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); res(c.toDataURL('image/jpeg',0.85)); }; img.onerror=rej; img.src=e.target.result; }; r.onerror=rej; r.readAsDataURL(file); }); }
 function renderFireMaps(){
   const host=document.getElementById('fireBody');
@@ -1941,7 +1941,7 @@ function addMap(){
   pickImageFile(async f=>{
     const name=prompt('배치도 이름(예: 조립동 & 천막동):', (f.name||'').replace(/\.[^.]+$/,'')); if(name==null||!name.trim())return;
     toast('업로드 중…');
-    try{ const b64=await downscaleImage(f,1600); await api('maps.add',{name:name.trim(), image_base64:b64}); await loadFireMaps(); MAP_PAGE=FIRE_MAPS.length-1; toast('배치도를 추가했습니다'); renderFireMaps(); }
+    try{ const b64=await downscaleImage(f,1600); await api('maps.add',{name:name.trim(), image_base64:b64, module:'fire'}); await loadFireMaps(); MAP_PAGE=FIRE_MAPS.length-1; toast('배치도를 추가했습니다'); renderFireMaps(); }
     catch(err){ toast('추가 실패: '+err.message); }
   });
 }
@@ -2759,7 +2759,7 @@ async function showFireSurveyField(locId){
   const loc=(FIRE.locs||[]).find(x=>x.id===locId);
   if(!loc){ fr.innerHTML='<div style="padding:50px;text-align:center;color:#6b7280">해당 소화기를 찾을 수 없습니다.</div>'; return; }
   let insp=[]; try{ insp=(await api('inspectors.list',{module:'fire'})).inspectors||[]; }catch(e){}
-  let map=null, mpt=null; try{ const maps=(await api('maps.list')).maps||[]; for(const m of maps){ const p=(m.points||[]).find(pt=>pt.location_id===loc.id); if(p){ map=m; mpt=p; break; } } }catch(e){}
+  let map=null, mpt=null; try{ const maps=(await api('maps.list',{module:'fire'})).maps||[]; for(const m of maps){ const p=(m.points||[]).find(pt=>pt.location_id===loc.id); if(p){ map=m; mpt=p; break; } } }catch(e){}
   FS={ loc, checklist:{}, photo:null, inspectors:insp, inspector:localStorage.getItem('fe_inspector')||'', map, mpt, defects:{} };
   renderFireSurvey();
 }
