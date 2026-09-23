@@ -291,7 +291,9 @@
   /* 관리자 전용 컨트롤: 관리자 로그인 시에만 표시 */
   body:not(.is-admin) .adm{display:none!important}
   .empt{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:grab;z-index:3}
-  .empt i{width:16px;height:16px;border-radius:50%;background:var(--indigo);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:block}
+  .empt i{width:16px;height:16px;border-radius:50%;background:var(--indigo);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:900;font-style:normal;line-height:1}
+  .empt.done i{background:var(--green)} .empt.part i{background:#f59e0b} .empt.todo i{background:var(--red)}
+  .empt.bad i{background:#dc2626;box-shadow:0 0 0 4px rgba(220,38,38,.35),0 1px 4px rgba(0,0,0,.3)}
   .empt b{font-size:10px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap;line-height:1.4;max-width:120px;overflow:hidden;text-overflow:ellipsis}
   .dh{cursor:grab;color:var(--faint);user-select:none;font-size:15px;line-height:1;padding:0 4px}
   .dh:active{cursor:grabbing}
@@ -696,7 +698,7 @@
 
 <script>
 const API = "https://ywbvxhwqgpliuccdzici.supabase.co/functions/v1/fe-api";
-const BUILD = "2026-09-23 r64";
+const BUILD = "2026-09-23 r65";
 // QR·웹점검 링크는 항상 실제 운영 파일(index_1.html) 을 가리킨다
 (function(){ const b=localStorage.getItem('fe_appbase'); if(b && b.indexOf('index_1')<0){ localStorage.removeItem('fe_appbase'); } })();
 function appBase(){
@@ -946,13 +948,35 @@ function eqTab(t){ EQ_TAB=t;
   else loadRoster('equip', renderEqRoster);
 }
 /* ===== 설비 배치도 (도면 하나에서 전체 설비 배치) ===== */
-let EM={ maps:[], idx:0, sheets:[], dirty:new Set(), pick:null };
+let EQMON_MAP_IDX=0;
+function eqMonMapPage(d){ EQMON_MAP_IDX=Math.max(0,EQMON_MAP_IDX+d); loadEqMonitor(); }
+let EM={ maps:[], idx:0, sheets:[], dirty:new Set(), pick:null, status:{} };
+/* 선택 날짜 기준 설비 점검 상태 { sheetId: {done, bad, insp, defect} } */
+async function eqMapStatus(sheets){
+  const d=String(EQ_DATE.getDate()); const out={};
+  const res=await Promise.all(sheets.map(s=>api('eq.month.get',{sheet_id:s.id, ym:EQ_YM, day:Number(d)}).then(j=>({s,j})).catch(()=>({s,j:null}))));
+  res.forEach(({s,j})=>{ if(!j){ out[s.id]={done:false,bad:false,insp:'',defect:''}; return; }
+    const data=(j.month&&j.month.data)||{}; const items=j.items||[]; const imap={}; items.forEach(it=>imap[it.id]=it);
+    const hasNight=items.some(it=>it.shift==='주야');
+    let sD=false,sN=false,bad=false,defect='';
+    Object.keys(data).forEach(iid=>{ const dd=data[iid]||{};
+      ['주','야'].forEach(sh=>{ const v=dd[sh]&&dd[sh][d];
+        if(v!=null&&v!==''){ if(sh==='주')sD=true; else sN=true; if(isBadVal(v)){ bad=true; if(!defect)defect=(imap[iid]?imap[iid].content:''); } } }); });
+    const inspM=(j.month&&j.month.inspectors)||{};
+    const insp=(inspM['주']||{})[d]||(inspM['야']||{})[d]||'';
+    const anoms=((j.month&&j.month.meta)||{}).anomalies||[];
+    const an=anoms.find(a=>String(a.date||'').endsWith('-'+String(EQ_DATE.getDate()).padStart(2,'0')));
+    out[s.id]={ done: hasNight?(sD&&sN):sD, part:(sD||sN), bad, insp, defect:(an&&an.defect)||defect };
+  });
+  return out;
+}
 async function loadEqMap(){
   const el=document.getElementById('eqSheetList'); el.innerHTML='<div class="list-empty">불러오는 중…</div>';
   try{
     const [mj,sj]=await Promise.all([api('maps.list',{module:'equip'}), api('eq.sheets.list',{ym:EQ_YM})]);
     EM.maps=mj.maps||[]; EM.sheets=(sj.sheets||[]); EM.dirty=new Set(); EM.pick=null;
     if(EM.idx>=EM.maps.length)EM.idx=0;
+    EM.status=await eqMapStatus(EM.sheets.filter(s=>s.active!==false));
     renderEqMap();
   }catch(e){ el.innerHTML='<div class="list-empty">불러오기 실패: '+esc(e.message)+'</div>'; }
 }
@@ -978,8 +1002,11 @@ function renderEqMap(){
     </div>
     <div id="emStage" style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;${EM.pick?'cursor:crosshair':''}">
       <img src="${m.image_url}" style="width:100%;display:block" draggable="false">
-      ${on.map(s=>`<span class="empt" data-id="${s.id}" style="left:${s.map_x*100}%;top:${s.map_y*100}%" title="${esc(s.name)}"><i></i><b>${esc(s.name)}</b></span>`).join('')}
+      ${on.map(s=>{ const st=(EM.status||{})[s.id]||{}; const cls=st.bad?'bad':(st.done?'done':(st.part?'part':'todo'));
+        const tip=`${s.name} · ${st.bad?'불량'+(st.defect?': '+st.defect:''):(st.done?'점검완료':(st.part?'일부 점검':'미점검'))}${st.insp?' · '+st.insp:''}`;
+        return `<span class="empt ${cls}" data-id="${s.id}" style="left:${s.map_x*100}%;top:${s.map_y*100}%" title="${esc(tip)}"><i>${st.bad?'!':''}</i><b>${esc(s.name)}</b></span>`; }).join('')}
     </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">🟢 점검완료 · 🟠 일부(주/야 중 하나) · 🔴 미점검 · <b style="color:#dc2626">!</b> 불량 <span style="color:var(--faint)">· ${eqDateStr(EQ_DATE)} 기준 · 점에 올리면 상세</span></div>
     <div style="font-size:12px;color:var(--muted);margin-top:8px">${isAdmin()?'아래 <b>미배치 설비</b>를 선택한 뒤 도면을 클릭해 배치 · 점을 <b>드래그</b>해 이동 · 점 <b>더블클릭</b>으로 배치 해제 · 마지막에 <b>저장</b>':'읽기 전용 (관리자 로그인 시 편집)'}</div>
     <div class="adm" style="margin-top:14px;border-top:1px solid var(--line2);padding-top:12px">
       <div style="font-size:12.5px;font-weight:800;margin-bottom:8px">미배치 설비 <span style="color:var(--muted);font-weight:500">${off.length}대${EM.pick?' · 선택됨: '+esc((EM.sheets.find(x=>x.id===EM.pick)||{}).name||''):''}</span></div>
@@ -1184,6 +1211,7 @@ async function loadEqMonitor(){
     else html+=spec.map(x=>`<div class="pz-item"><div><div class="title" style="font-weight:700">${esc(x.sheet)}</div><div class="desc" style="font-size:12px;color:var(--muted)">${esc(x.item)} · ${x.shift}간</div></div><span class="fbadge todo">불량</span></div>`).join('');
     html+=`</div>`;
     // 설문별 점검 현황 (2열 카드)
+    html+='<div id="eqMonMap"></div>';
     html+=`<div class="panel"><div class="p-head">설문별 점검 현황 <span class="sub">(주·야 설비는 각각 표시) · ${eqDateStr(today)}</span></div>`;
     if(!rows.length) html+=`<div class="list-empty">운영중 점검표가 없습니다.</div>`;
     else { const bd=(done)=>`<span class="fbadge ${done?'done':'todo'}" style="font-size:10px;padding:2px 7px">${done?'완료':'미완료'}</span>`;
@@ -1222,6 +1250,27 @@ async function loadEqMonitor(){
         </table></div></div>`;
     }catch(e){}
     el.innerHTML=html;
+    // 배치도 (선택일 기준 상태)
+    (async()=>{ const box=document.getElementById('eqMonMap'); if(!box)return;
+      try{ const maps=((await api('maps.list',{module:'equip'})).maps)||[]; if(!maps.length){ box.innerHTML=''; return; }
+        const stMap={}; rows.forEach(r=>{ stMap[r.s.id]={ done: r.hasNight?(r.sD&&r.sN):r.sD, part:(r.sD||r.sN), insp:(r.dInsp||r.nInsp||'') }; });
+        const badBy={}; spec.forEach(x=>{ const t=rows.find(r=>r.s.name===x.sheet); if(t)badBy[t.s.id]=x.item; });
+        if(EQMON_MAP_IDX>=maps.length)EQMON_MAP_IDX=0;
+        const m=maps[EQMON_MAP_IDX];
+        const on=act.filter(s=>s.map_id===m.id && s.map_x!=null);
+        box.innerHTML=`<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px"><button class="ghost-btn" onclick="eqMonMapPage(-1)" ${maps.length<2?'disabled':''}>◀</button>
+            <b style="font-size:14px">📍 ${esc(m.name)}</b><span style="font-size:12px;color:var(--muted)">(${EQMON_MAP_IDX+1}/${maps.length}) · 배치 ${on.length}대</span>
+            <button class="ghost-btn" onclick="eqMonMapPage(1)" ${maps.length<2?'disabled':''}>▶</button></div></div>
+          <div style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:10px;overflow:hidden">
+            <img src="${m.image_url}" style="width:100%;display:block">
+            ${on.map(s=>{ const st=stMap[s.id]||{}; const bad=!!badBy[s.id]; const cls=bad?'bad':(st.done?'done':(st.part?'part':'todo'));
+              const tip=`${s.name} · ${bad?'불량: '+badBy[s.id]:(st.done?'점검완료':(st.part?'일부 점검':'미점검'))}${st.insp?' · '+st.insp:''}`;
+              return `<span class="empt ${cls}" style="left:${s.map_x*100}%;top:${s.map_y*100}%" title="${esc(tip)}"><i>${bad?'!':''}</i><b>${esc(s.name)}</b></span>`; }).join('')}
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px">🟢 점검완료 · 🟠 일부 · 🔴 미점검 · <b style="color:#dc2626">!</b> 불량 <span style="color:var(--faint)">· ${eqDateStr(today)} 기준</span></div></div>`;
+      }catch(e){ box.innerHTML=''; }
+    })();
   }catch(e){ el.innerHTML='<div class="list-empty"><b>불러오기 실패</b>'+esc(e.message)+'</div>'; }
 }
 async function renderEqResults(){
@@ -2831,7 +2880,7 @@ async function showEqSurveyField(){
     const j=await api('eq.month.get',{sheet_id:FEQ, ym});
     let insp=[]; if(Array.isArray(j.sheet_inspectors)&&j.sheet_inspectors.length){ insp=j.sheet_inspectors; }
     else { try{ insp=(await api('inspectors.list',{module:'equip'})).inspectors||[]; }catch(e){} }
-    ES={ sheet:j.sheet||{}, items:j.items||[], meta:(j.month&&j.month.meta)||{}, shift:null, inspector:localStorage.getItem('fe_inspector')||'', answers:{}, photos:{}, defects:{}, inspectors:insp, ym, map:j.map||null };
+    ES={ sheet:j.sheet||{}, items:j.items||[], meta:(j.month&&j.month.meta)||{}, shift:null, inspector:localStorage.getItem('fe_inspector')||'', answers:{}, photos:{}, defects:{}, inspectors:insp, ym, map:j.map||null, others_done:(j.map&&j.map.done_map)||{} };
     renderEqSurvey();
   }catch(e){ app.innerHTML=`<div style="padding:50px;text-align:center;color:#c0392b">불러오기 실패: ${esc(e.message)}</div>`; }
 }
@@ -2842,10 +2891,10 @@ function renderEqSurvey(){
     html+=`<div class="eqcard"><h3>배치도 <span style="font-weight:500;color:var(--muted);font-size:12px">· ${esc(m.name||'')}</span></h3>
       <div style="position:relative;width:100%;line-height:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:zoom-in" onclick="eqLightbox('${m.image_url}')">
         <img src="${m.image_url}" style="width:100%;display:block">
-        ${(m.others||[]).map(o=>`<span style="position:absolute;left:${o.map_x*100}%;top:${o.map_y*100}%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:#9aa1ac;border:2px solid #fff;opacity:.85"></span>`).join('')}
+        ${(m.others||[]).map(o=>{ const dn=(ES.others_done||{})[o.id]; return `<span title="${esc(o.name||'')}${dn?' · 점검완료':''}" style="position:absolute;left:${o.map_x*100}%;top:${o.map_y*100}%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:${dn?'var(--green)':'#9aa1ac'};border:2px solid #fff;opacity:.9"></span>`; }).join('')}
         <span style="position:absolute;left:${m.x*100}%;top:${m.y*100}%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:var(--red);border:3px solid #fff;box-shadow:0 0 0 4px rgba(220,38,38,.35);animation:fspulse 1.4s ease-out infinite"></span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px">🔴 이 설비 위치 · 회색 점은 다른 설비 · 탭하면 크게 보기</div></div>`; }
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">🔴 이 설비 위치 · 🟢 오늘 점검완료 · ⚪ 미점검 · 탭하면 크게 보기</div></div>`; }
   if(rev.length){ html+=`<div class="eqcard"><h3>개정 이력</h3><table class="rev-tbl"><tr><th>개정일자</th><th>개정사유</th><th>개정내용</th><th>작성자</th><th>비고</th></tr>${rev.map(r=>`<tr><td>${esc(r.date||'')}</td><td>${esc(r.reason||'')}</td><td>${esc(r.content||'')}</td><td>${esc(r.author||'')}</td><td>${esc(r.note||'')}</td></tr>`).join('')}</table></div>`; }
   html+=`<div class="eqcard"><h3>점검 구분 <span style="color:#dc2626">*</span></h3><div class="eqgrid2">
     <div class="eqchip" id="es-shift-주" onclick="esShift('주')">☀ 주간</div>
